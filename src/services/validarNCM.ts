@@ -13,6 +13,8 @@ interface BrasilApiNCM {
   unidade_medida?: string;
 }
 
+const BRASIL_API_NCM_URL = 'https://brasilapi.com.br/api/ncm/v1';
+
 function normalizarResposta(item: BrasilApiNCM): NCMInfo {
   return {
     codigo: item.codigo,
@@ -23,8 +25,28 @@ function normalizarResposta(item: BrasilApiNCM): NCMInfo {
   };
 }
 
+function onlyDigits(value: string) {
+  return value.replace(/\D/g, '');
+}
+
+async function buscarNCMNaBrasilAPI(search: string): Promise<BrasilApiNCM[]> {
+  const response = await fetch(`${BRASIL_API_NCM_URL}?search=${encodeURIComponent(search)}`);
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const data = (await response.json()) as BrasilApiNCM | BrasilApiNCM[];
+
+  if (Array.isArray(data)) {
+    return data;
+  }
+
+  return data?.codigo ? [data] : [];
+}
+
 export async function validarNCM(ncm: string): Promise<NCMInfo> {
-  const codigo = ncm.replace(/\D/g, '');
+  const codigo = onlyDigits(ncm);
 
   if (codigo.length !== 8) {
     return {
@@ -37,15 +59,16 @@ export async function validarNCM(ncm: string): Promise<NCMInfo> {
   }
 
   try {
-    const response = await fetch(`https://brasilapi.com.br/api/ncm/v1/${codigo}`);
+    const resultados = await buscarNCMNaBrasilAPI(codigo);
+    const match =
+      resultados.find((item) => onlyDigits(item.codigo) === codigo) ||
+      resultados.find((item) => onlyDigits(item.codigo).startsWith(codigo));
 
-    if (!response.ok) {
+    if (!match) {
       return { codigo, descricao: '', aliquotaIPI: 0, unidade: '', valido: false };
     }
 
-    const data = (await response.json()) as BrasilApiNCM;
-
-    return normalizarResposta(data);
+    return normalizarResposta(match);
   } catch {
     return { codigo, descricao: '', aliquotaIPI: 0, unidade: '', valido: false };
   }
@@ -53,15 +76,7 @@ export async function validarNCM(ncm: string): Promise<NCMInfo> {
 
 export async function buscarNCMPorDescricao(descricao: string): Promise<NCMInfo[]> {
   try {
-    const response = await fetch(
-      `https://brasilapi.com.br/api/ncm/v1?search=${encodeURIComponent(descricao)}`
-    );
-
-    if (!response.ok) {
-      return [];
-    }
-
-    const data = (await response.json()) as BrasilApiNCM[];
+    const data = await buscarNCMNaBrasilAPI(descricao);
 
     return data.slice(0, 10).map(normalizarResposta);
   } catch {
